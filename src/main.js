@@ -61,7 +61,7 @@ function applyLook() {
 function setBackground(img) {
   bgImg = img;
   $('bgreflect').disabled = !img;
-  if (!img) $('bgreflect').checked = false;
+  $('bgreflect').checked = !!img; // reflecting the background is the default look; untick to opt out
   applyLook();
   applyEnv();
 }
