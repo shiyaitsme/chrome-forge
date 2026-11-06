@@ -3,7 +3,7 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { GLTFExporter } from 'three/addons/exporters/GLTFExporter.js';
 import { STLExporter } from 'three/addons/exporters/STLExporter.js';
 import { imageToGray, makeMask, buildHeight, buildMeshData, smoothNormals } from './inflate.js';
-import { buildEnvironment } from './env.js';
+import { buildEnvironment, buildEnvironmentFromImage } from './env.js';
 
 const $ = (id) => document.getElementById(id);
 const stage = $('stage');
@@ -33,18 +33,47 @@ function resize() {
 new ResizeObserver(resize).observe(stage);
 resize();
 
+let bgImg = null; // uploaded background photo
+
 function applyEnv() {
   envTex?.dispose();
-  envTex = buildEnvironment(renderer, $('env').value);
+  envTex = bgImg && $('bgreflect').checked
+    ? buildEnvironmentFromImage(renderer, bgImg)
+    : buildEnvironment(renderer, $('env').value);
   scene.environment = envTex;
 }
 function applyLook() {
   material.roughness = +$('rough').value;
   material.color.set($('tint').value);
-  const transparent = $('transparent').checked;
-  renderer.setClearColor($('bg').value, transparent ? 0 : 1);
+  if (bgImg) {
+    // The photo is shown by the page behind a transparent canvas (CSS "cover").
+    renderer.setClearColor(0x000000, 0);
+    stage.style.backgroundImage = `url(${bgImg.src})`;
+    stage.style.backgroundSize = 'cover';
+    stage.style.backgroundPosition = 'center';
+  } else {
+    renderer.setClearColor($('bg').value, 1);
+    stage.style.backgroundImage = 'none';
+  }
   controls.autoRotate = $('spin').checked;
 }
+
+function setBackground(img) {
+  bgImg = img;
+  $('bgreflect').disabled = !img;
+  if (!img) $('bgreflect').checked = false;
+  applyLook();
+  applyEnv();
+}
+$('bgfile').addEventListener('change', (e) => {
+  const f = e.target.files[0];
+  if (!f) return;
+  const img = new Image();
+  img.onload = () => setBackground(img);
+  img.src = URL.createObjectURL(f); // kept alive: the CSS background and the reflection map both use it
+});
+$('bgclear').addEventListener('click', () => { $('bgfile').value = ''; setBackground(null); });
+$('bgreflect').addEventListener('change', applyEnv);
 
 renderer.setAnimationLoop(() => {
   controls.update();
@@ -220,7 +249,7 @@ for (const id of ['threshold', 'invert', 'soften', 'res', 'radius', 'depth', 'sm
   $(id).addEventListener('input', scheduleRebuild);
 }
 $('env').addEventListener('change', applyEnv);
-for (const id of ['rough', 'tint', 'bg', 'transparent', 'spin']) {
+for (const id of ['rough', 'tint', 'bg', 'spin']) {
   $(id).addEventListener('input', () => { applyLook(); updateReadouts(readParams()); });
 }
 
@@ -234,7 +263,29 @@ function download(blob, name) {
 }
 $('png').addEventListener('click', () => {
   renderer.render(scene, camera);
-  renderer.domElement.toBlob((b) => download(b, 'chrome.png'));
+  const src = renderer.domElement;
+  const noBg = $('transparent').checked;
+  // Plain colour background: re-render with alpha 0 when "no background" is ticked.
+  if (noBg && !bgImg) {
+    renderer.setClearColor(0x000000, 0);
+    renderer.render(scene, camera);
+    src.toBlob((b) => { download(b, 'chrome.png'); applyLook(); });
+    return;
+  }
+  if (!bgImg || noBg) {
+    src.toBlob((b) => download(b, 'chrome.png'));
+    return;
+  }
+  // Photo background: composite "cover"-fitted photo under the render.
+  const out = document.createElement('canvas');
+  out.width = src.width;
+  out.height = src.height;
+  const ctx = out.getContext('2d');
+  const k = Math.max(out.width / bgImg.naturalWidth, out.height / bgImg.naturalHeight);
+  const dw = bgImg.naturalWidth * k, dh = bgImg.naturalHeight * k;
+  ctx.drawImage(bgImg, (out.width - dw) / 2, (out.height - dh) / 2, dw, dh);
+  ctx.drawImage(src, 0, 0);
+  out.toBlob((b) => download(b, 'chrome.png'));
 });
 $('glb').addEventListener('click', async () => {
   if (!mesh) return;

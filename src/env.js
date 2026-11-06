@@ -67,6 +67,19 @@ const PRESETS = {
 
 export const ENV_NAMES = Object.keys(PRESETS);
 
+/** Use an uploaded photo as the reflection source (treated as an equirectangular panorama). */
+export function buildEnvironmentFromImage(renderer, img) {
+  const equirect = new THREE.Texture(img);
+  equirect.mapping = THREE.EquirectangularReflectionMapping;
+  equirect.colorSpace = THREE.SRGBColorSpace;
+  equirect.needsUpdate = true;
+  const pmrem = new THREE.PMREMGenerator(renderer);
+  const rt = pmrem.fromEquirectangular(equirect);
+  equirect.dispose();
+  pmrem.dispose();
+  return rt.texture;
+}
+
 export function buildEnvironment(renderer, name) {
   const equirect = makeEquirect(PRESETS[name]);
   const pmrem = new THREE.PMREMGenerator(renderer);
